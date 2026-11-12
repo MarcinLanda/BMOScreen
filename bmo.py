@@ -1,4 +1,7 @@
 import tkinter as tk
+import urllib.request
+import json
+import threading
 from datetime import datetime
 
 class BMOApp(tk.Tk):
@@ -66,14 +69,60 @@ class BMOApp(tk.Tk):
     def show_sports_screen(self):
         self.clear_screen()
         
-        tk.Label(self.container, text="Chicago Sports Schedule", font=("Arial", 13, "bold"), bg="#36AE7C", fg="white").pack(pady=5)
+        tk.Label(self.container, text="Chicago Sports Schedule", font=("Arial", 12, "bold"), bg="#36AE7C", fg="white").pack(pady=2)
 
-        score_text = tk.Text(self.container, width=45, height=8, bg="#2d9167", fg="white", font=("Arial", 9))
-        score_text.pack(pady=5)
-        score_text.insert("1.0", "Loading Chicago Teams...\n- Cubs / White Sox: Check ESPN API\n- Bulls / Blackhawks: Upcoming Games")
-        score_text.config(state="disabled")
+        # Create the text widget to display scores
+        self.score_text = tk.Text(self.container, width=50, height=8, bg="#2d9167", fg="white", font=("Arial", 9))
+        self.score_text.pack(pady=2)
+        
+        self.score_text.insert("1.0", "Fetching live Chicago sports data...\nPlease wait...")
+        self.score_text.config(state="disabled")
 
-        tk.Button(self.container, text="🔙 Back", command=self.show_idle_screen, bg="#EB5353", fg="white", font=("Arial", 10)).pack(side="bottom", pady=5)
+        tk.Button(self.container, text="🔙 Back", command=self.show_idle_screen, bg="#EB5353", fg="white", font=("Arial", 9, "bold")).pack(side="bottom", pady=5)
+
+        # Start background thread so the UI doesn't freeze during the web request
+        threading.Thread(target=self.fetch_chicago_sports, daemon=True).start()
+
+def fetch_chicago_sports(self):
+    try:
+        # Using ESPN's public scoreboard feeds (Cubs/Sox/Bulls/Blackhawks)
+        urls = {
+            "MLB": "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
+            "NBA": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+            "NHL": "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard"
+        }
+        
+        chicago_teams = ["Cubs", "White Sox", "Bulls", "Blackhawks"]
+        results = []
+
+        for league, url in urls.items():
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                
+                for event in data.get("events", []):
+                    name = event.get("name", "")
+                    # Check if any Chicago team is playing in this event
+                    if any(team in name for team in chicago_teams):
+                        status = event["status"]["type"]["description"]
+                        results.append(f"• {name} [{status}]")
+
+        if not results:
+            output = "No live Chicago games found right now.\nCheck back later for upcoming schedules!"
+        else:
+            output = "\n".join(results[:5]) # Limit lines to fit 3.5" screen
+
+    except Exception as e:
+        output = f"Could not load sports data.\nCheck Raspberry Pi internet connection."
+
+    # Safely update the Tkinter Text widget from the main UI thread
+    self.after(0, lambda: self.update_score_display(output))
+
+def update_score_display(self, text):
+    self.score_text.config(state="normal")
+    self.score_text.delete("1.0", tk.END)
+    self.score_text.insert("1.0", text)
+    self.score_text.config(state="disabled")
 
 if __name__ == "__main__":
     app = BMOApp()
